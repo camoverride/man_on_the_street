@@ -1,0 +1,12 @@
+# YOLO object detection model (weak: yolov8n.pt; medium: yolov8m.pt; strong: yolov8nx.pt)
+yolo_model: yolov8n.pt
+target_classes: ["person"]
+bb_color: [0, 255, 0]
+draw_labels: True
+conf_threshold: 0.1
+
+# Which camera stream? (see all_cameras.txt)
+traffic_cam_url: https://61e0c5d388c2e.streamlock.net/live/4_Olive_NS.stream/chunklist_w941135728.m3u8
+
+# Where to save the downloaded video chunks.
+video_chunk_save_dir: videos

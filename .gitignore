@@ -1,0 +1,8 @@
+# Virtual env
+.venv
+
+# Saved video chunks
+videos/
+
+# YOLO model artifact
+*.pt
