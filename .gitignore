@@ -1,8 +1,12 @@
 # Virtual env
 .venv
 
-# Saved video chunks
-videos/
+# Saved video chunks and full videos
+video_chunks/
+videos_full/
 
 # YOLO model artifact
 *.pt
+
+# State tracking for video combining
+__video_combiner_state.json
