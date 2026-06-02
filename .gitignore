@@ -10,3 +10,6 @@ videos_full/
 
 # State tracking for video combining
 __video_combiner_state.json
+
+# Test bounding box video
+__test_bounding_boxes.mp4
