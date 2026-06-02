@@ -28,7 +28,6 @@ def record_stream(
     None
         Video chunks are saved.
     """
-
     # Create the video chunk directory if it doesn't already exist.
     Path(video_chunk_save_dir).mkdir(exist_ok=True)
 
@@ -90,7 +89,7 @@ def record_stream(
                     stderr=subprocess.DEVNULL,
                 )
 
-                # Delete .ts after successful conversion.
+                # Delete .ts file after successful conversion.
                 ts_path.unlink()
 
                 print(f"Saved {mp4_path.name}")
@@ -101,6 +100,7 @@ def record_stream(
         # Video chunks are about 10s long, so there is no need to continuously
         # hit the URL.
         time.sleep(2)
+
 
 
 if __name__ == "__main__":
