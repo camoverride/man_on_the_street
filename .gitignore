@@ -4,6 +4,7 @@
 # Saved video chunks and full videos
 video_chunks/
 videos_full/
+person_crops/
 
 # YOLO model artifact
 *.pt
@@ -11,5 +12,9 @@ videos_full/
 # State tracking for video combining
 __video_combiner_state.json
 
-# Test bounding box video
+# Test bounding box videos.
 __test_bounding_boxes.mp4
+__debug_tracked_video.mp4
+
+# Misc
+old/
