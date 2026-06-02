@@ -7,7 +7,7 @@ import yaml
 
 
 
-def run_video_combiner(
+def video_combiner(
     input_dir: Path,
     output_dir: Path,
     group_size: int,
@@ -105,7 +105,7 @@ if __name__ == "__main__":
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
 
-    run_video_combiner(
+    video_combiner(
         input_dir=Path(config["video_chunk_save_dir"]),
         output_dir=Path(config["full_video_save_dir"]),
         group_size=config["num_video_chunks_per_full_video"],
