@@ -15,6 +15,7 @@ __video_combiner_state.json
 # Test bounding box videos.
 __test_bounding_boxes.mp4
 __debug_tracked_video.mp4
+composite.mp4
 
 # Misc
 old/
