@@ -1,5 +1,7 @@
 import cv2
+from dataclasses import dataclass, field
 from datetime import datetime
+import math
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
@@ -9,6 +11,54 @@ from collections import defaultdict
 
 
 
+# Define the Observation data class, as part of Tracks
+@dataclass
+class Observation:
+    frame: int
+    cx: float
+    cy: float
+    width: float
+    height: float
+
+
+# Define the Tracks data class, which is used for all object tracking.
+@dataclass
+class Tracks:
+    data: Dict[int, List[Observation]] = field(
+        default_factory=lambda: defaultdict(list))
+
+    def add(
+        self,
+        track_id: int,
+        frame: int,
+        cx: float,
+        cy: float,
+        width: float,
+        height: float,
+    ) -> None:
+        self.data[track_id].append(
+            Observation(
+                frame=frame,
+                cx=cx,
+                cy=cy,
+                width=width,
+                height=height))
+
+    def items(self):
+        return self.data.items()
+
+    def __getitem__(self, track_id: int):
+        return self.data[track_id]
+
+    def __setitem__(self, track_id: int, value):
+        self.data[track_id] = value
+
+
+
+
+
+
+# NOTE: this mus be replaced with edge detection so boxes are warped at image edges.
 def clamp(v, vmin, vmax):
     return max(vmin, min(v, vmax))
 
@@ -57,54 +107,54 @@ def compute_box(
 
 def run_tracking(
     input_path: Union[str, Path],
-    model,
+    yolo_model_path : str,
     classes,
     conf_threshold: float,
     tracker_cfg: Path,
-) -> Tuple[Dict[int, List[Tuple[int, float, float, float, float]]], int]:
+) -> Tracks:
     """
     Run YOLO object tracking on a video and collect per-track motion data.
 
     This function processes a video frame-by-frame using a YOLO tracking model
-    (ByteTrack via Ultralytics). It extracts detections for class `person`
-    only, assigns persistent track IDs, and stores each track's trajectory as
-    center-based bounding boxes over time.
+    (ByteTrack via Ultralytics). It extracts detections, assigns persistent
+    track IDs, and stores each track's trajectory as center-based bounding
+    boxes over time.
 
     Parameters
     ----------
     input_path : str or Path
         Path to the input video file.
-    model : ultralytics.YOLO
-        Loaded YOLO model instance with tracking capability.
+    model : str
+        Path to the YOLO model instance with tracking capability.
     conf : float
         Confidence threshold for detections.
     tracker_cfg : str
-        Path or name of the tracker configuration (e.g., "bytetrack.yaml").
+        Path of the tracker configuration (e.g., "bytetrack.yaml").
 
     Returns
     -------
     tracks : dict[int, list[tuple[int, float, float, float, float]]]
         Dictionary mapping track ID to a list of observations.
-        Each observation is:
-            (frame_index, cx, cy, width, height)
-    frame_count : int
-        Total number of frames processed in the video.
+        Each observation is: (frame_index, cx, cy, width, height)
     """
+    # Load YOLO model.
+    model = YOLO(yolo_model_path)
+
     # Load the video.
     cap = cv2.VideoCapture(str(input_path))
 
     # Store track history: track_id -> list of (frame, cx, cy, w, h)
-    tracks = defaultdict(list)
+    tracks = Tracks()
     frame_idx = 0
 
-    # Main event loop..
+    # Main event loop.
     while True:
         # Read a frame.
         ret, frame = cap.read()
         if not ret:
             break
 
-        # Run YOLO tracking (person class only).
+        # Run YOLO tracking.
         results = model.track(
             frame,
             persist=True,
@@ -134,331 +184,416 @@ def run_tracking(
                 h = (y2 - y1)
 
                 # Store observation.
-                tracks[tid].append((frame_idx, cx, cy, w, h))
+                tracks.add(
+                    track_id=tid,
+                    frame=frame_idx,
+                    cx=cx,
+                    cy=cy,
+                    width=w,
+                    height=h)
 
         frame_idx += 1
 
     cap.release()
 
-    return tracks, frame_idx
+    return tracks
 
 
 def interpolate_tracks(
-    tracks: Dict[int, List[Tuple[int, float, float, float, float]]]
-) -> Dict[int, List[Tuple[int, float, float, float, float]]]:
+    tracks: Tracks
+) -> Tracks:
     """
-    Linearly interpolate missing frame observations in tracked object trajectories.
+    Linearly interpolate missing frame observations in tracked
+    object trajectories.
 
-    This function fills temporal gaps between sparse tracking detections by
-    performing linear interpolation over bounding box parameters:
-    center coordinates (cx, cy) and size (w, h).
-
-    The interpolation is done per track independently.
+    This function fills temporal gaps between sparse tracking
+    detections by performing linear interpolation over bounding
+    box parameters: center coordinates (cx, cy) and size (w, h).
 
     Parameters
     ----------
-    tracks : dict[int, list[tuple[int, float, float, float, float]]]
+    tracks : Tracks
         Dictionary mapping track ID to a list of detections.
         Each detection is a tuple:
             (frame_index, cx, cy, width, height)
 
     Returns
     -------
-    dict[int, list[tuple[int, float, float, float, float]]]
+    Tracks
         Same structure as input, but with additional interpolated frames
         inserted between observed detections.
-
-    Notes
-    -----
-    - Uses simple linear interpolation per dimension.
-    - Does NOT smooth noise; it only fills missing frames.
-    - Assumes frame indices are integers and monotonic per track.
     """
-    full_tracks: Dict[int, List[Tuple[int, float, float, float, float]]] = {}
+    # Collect all the tracks here.
+    result = Tracks()
 
-    for tid, data in tracks.items():
-        if not data:
+    # Iterate over track ID's and observations.
+    for track_id, observations in tracks.items():
+
+        # If there is an ID with no observations, skip.
+        # NOTE: this is very unlikely to happen.
+        if not observations:
             continue
 
-        # Ensure temporal ordering
-        data.sort(key=lambda x: x[0])
+        observations = sorted(
+            observations,
+            key=lambda obs: obs.frame)
 
-        frames: List[Tuple[int, float, float, float, float]] = []
+        for i in range(len(observations) - 1):
 
-        # Interpolate between consecutive detections.
-        for i in range(len(data) - 1):
-            f0, cx0, cy0, w0, h0 = data[i]
-            f1, cx1, cy1, w1, h1 = data[i + 1]
+            start = observations[i]
+            end = observations[i + 1]
 
-            # Keep the original observation.
-            frames.append((f0, cx0, cy0, w0, h0))
+            # Keep original observation.
+            result.add(
+                track_id,
+                start.frame,
+                start.cx,
+                start.cy,
+                start.width,
+                start.height)
 
-            gap = f1 - f0
+            gap = end.frame - start.frame
 
-            # Fill missing frames between f0 and f1.
+            # Fill missing frames.
             if gap > 1:
+
                 for k in range(1, gap):
 
-                    # Normalized interpolation factor [0,1]
                     t = k / gap
 
-                    cx = cx0 + t * (cx1 - cx0)
-                    cy = cy0 + t * (cy1 - cy0)
-                    w = w0 + t * (w1 - w0)
-                    h = h0 + t * (h1 - h0)
-
-                    frames.append((f0 + k, cx, cy, w, h))
+                    result.add(
+                        track_id,
+                        frame=start.frame + k,
+                        cx=start.cx + t * (end.cx - start.cx),
+                        cy=start.cy + t * (end.cy - start.cy),
+                        width=start.width + t * (end.width - start.width),
+                        height=start.height + t * (end.height - start.height))
 
         # Append final observation.
-        frames.append(data[-1])
+        last = observations[-1]
 
-        # Ensure correct ordering after interpolation.
-        frames.sort(key=lambda x: x[0])
+        result.add(
+            track_id,
+            last.frame,
+            last.cx,
+            last.cy,
+            last.width,
+            last.height)
 
-        full_tracks[tid] = frames
-
-    return full_tracks
+    return result
 
 
-def stabilize(
-    frames: List[Tuple[int, float, float, float, float]],
-    aspect_ratio: Tuple[float, float]
-) -> List[Tuple[int, float, float, float, float]]:
+def stabilize_bb_aspect_ratio(
+    tracks: Tracks,
+    crop_aspect_ratio: Tuple[int, int]
+) -> Tracks:
     """
-    Enforce a fixed aspect ratio on bounding boxes while preserving
-    their centers.
+    Force every bounding box to have the same aspect ratio.
 
-    This function adjusts the width and height of each bounding box
-    so that it matches a target aspect ratio. The center position
-    (cx, cy) is preserved, meaning boxes are resized but not moved.
+    The center of each bounding box is preserved. Width and height
+    are adjusted so that width / height = target_aspect_ratio while
+    approximately preserving the original box area. This avoids
+    arbitrarily treating either the original width or height as the
+    "correct" dimension.
 
     Parameters
     ----------
-    frames : list of tuple
-        List of bounding box observations in the form:
-            (frame_index, cx, cy, width, height)
-    aspect_ratio : tuple of float
-        Desired aspect ratio expressed as (ar_w, ar_h).
-        For example:
-            (1, 1)   -> square boxes
-            (2, 3)   -> portrait boxes
-            (16, 9)  -> landscape boxes
+    tracks : Tracks
+        Input tracked observations.
+
+    crop_aspect_ratio : Tuple[int, int]
+        Desired output aspect ratio expressed as (width, height)
 
     Returns
     -------
-    list of tuple
-        Updated list of frames with stabilized bounding boxes:
-            (frame_index, cx, cy, width, height)
-
-    Notes
-    -----
-    - This function does NOT smooth position or size over time.
-    - It only enforces a consistent shape per frame.
-    - If a box is too wide relative to the target ratio, height is increased.
-      If it is too tall, width is increased.
+    Tracks
+        Tracks whose observations all share the same aspect ratio.
     """
-    ar_w, ar_h = aspect_ratio
-    target_ar = ar_w / ar_h
+    # Convert (width, height) tuple into a scalar aspect ratio.
+    # Example: (16, 9) -> 1.777..., (9, 16) -> 0.5625
+    target_ar = crop_aspect_ratio[0] / crop_aspect_ratio[1]
 
-    out: List[Tuple[int, float, float, float, float]] = []
+    # Create a new Tracks object so we do not mutate input data.
+    stabilized = Tracks()
 
-    for f, cx, cy, w, h in frames:
+    # Process each tracked object independently.
+    for track_id, observations in tracks.items():
 
-        # Compute current aspect ratio (guard against division by zero).
-        current_ar = w / (h + 1e-6)
+        # Iterate through all detections for this track.
+        for obs in observations:
 
-        # Adjust dimensions to match target aspect ratio.
-        if current_ar > target_ar:
-            # If too wide then increase height.
-            h = w / target_ar
-        else:
-            # if too tall, increase width.
-            w = h * target_ar
+            # Skip invalid bounding boxes that could break math operations.
+            if obs.width <= 0 or obs.height <= 0:
+                continue
 
-        out.append((f, cx, cy, w, h))
+            # Compute the original bounding box area.
+            # This acts as a "size budget" we preserve while changing shape.
+            area = obs.width * obs.height
 
-    return out
+            # Compute new width and height while keeping area constant.
+            new_width = math.sqrt(area * target_ar)
+            new_height = math.sqrt(area / target_ar)
+
+            # Store transformed observation with:
+            # - same frame index
+            # - same center position (cx, cy)
+            # - adjusted width/height matching target aspect ratio
+            stabilized.add(
+                track_id=track_id,
+                frame=obs.frame,
+                cx=obs.cx,
+                cy=obs.cy,
+                width=new_width,
+                height=new_height)
+
+    return stabilized
+
+
+def smooth_bb_size(
+    tracks: Tracks,
+    alpha: float,
+) -> Tracks:
+    """
+    Smooth bounding box width/height using an Exponential
+    Moving Average (EMA).
+    
+    Parameters
+    ----------
+    tracks : Tracks
+        Input tracked observations.
+    alpha : float
+        EMA smoothing factor in [0, 1].
+        Larger values = more smoothing.
+        Smaller values = more responsive sizing.
+    
+    Returns
+    -------
+    Tracks
+        Smoothed tracks.
+    """
+
+    # Output container (do not mutate input tracks)
+    smoothed_tracks = Tracks()
+
+    # Process each object independently (important: no cross-track smoothing)
+    for track_id, observations in tracks.items():
+
+        # If no data, skip safely
+        if not observations:
+            continue
+
+        # Ensure temporal order (EMA assumes sequential time series)
+        observations = sorted(observations, key=lambda obs: obs.frame)
+
+        # Initialize EMA state using the first observation
+        # This becomes the "previous smoothed value"
+        prev_w = observations[0].width
+        prev_h = observations[0].height
+
+        # Iterate over time-ordered detections
+        for obs in observations:
+            w = alpha * prev_w + (1.0 - alpha) * obs.width
+            h = alpha * prev_h + (1.0 - alpha) * obs.height
+
+            # Store smoothed observation
+            smoothed_tracks.add(
+                track_id,
+                frame=obs.frame,
+                cx=obs.cx,   # NOTE: position is NOT smoothed
+                cy=obs.cy,   # keeps crop "locked" to motion
+                width=w,
+                height=h
+            )
+
+            # Update EMA state for next iteration
+            # (this is what makes it "memory-based")
+            prev_w = w
+            prev_h = h
+
+    return smoothed_tracks
+
+
+def add_margins(
+    tracks: Tracks,
+    margin: float
+) -> Tracks:
+    """
+    Adds relative margins to each bounding box while preserving
+    center location (cx, cy) and aspect ratio of each box.
+
+    The margin is applied as a uniform scaling factor:
+    margin = 0.2 -> +20% size in both width and height
+
+    Parameters
+    ----------
+    tracks : Tracks
+        Input tracked observations.
+    margin : float
+        The margin to be added to the observations.
+
+    Returns
+    -------
+    Tracks
+        Observations with added margins.
+    """
+    # Output container (do not mutate input)
+    expanded_tracks = Tracks()
+
+    # Precompute scale factor once for clarity
+    # Example:
+    #   margin = 0.2 -> scale = 1.2
+    scale = 1.0 + margin
+
+    # Iterate over all tracked objects
+    for track_id, observations in tracks.items():
+
+        for obs in observations:
+            new_width = obs.width * scale
+            new_height = obs.height * scale
+
+            # Store expanded bounding box with same center position
+            expanded_tracks.add(
+                track_id,
+                frame=obs.frame,
+                cx=obs.cx,
+                cy=obs.cy,
+                width=new_width,
+                height=new_height)
+
+    return expanded_tracks
 
 
 def export_crops(
     input_path: Path,
-    tracks: Dict[int, List[Tuple[int, float, float, float, float]]],
+    tracks: Tracks,
     fps: float,
     out_dir: Path,
     aspect_ratio: tuple[float, float],
     output_width: int,
-    margin_x: float,
-    margin_y: float,
+    margin: float,
     min_seconds: int
 ) -> None:
     """
-    Export cropped videos for each tracked object based on stabilized
-    trajectories.
-
-    Each track is converted into a separate video by cropping the
-    original frames using the provided bounding box trajectory. Tracks
-    shorter than `min_seconds` are ignored.
-
-    Parameters
-    ----------
-    input_path : Path
-        Path to the original input video.
-    tracks : dict[int, list[tuple[int, float, float, float, float]]]
-        Dictionary mapping track IDs to frame-level bounding box data:
-            (frame_index, cx, cy, width, height)
-    fps : float
-        Frame rate of the input video.
-    out_dir : Path
-        Directory where per-person cropped videos will be saved.
-    aspect_ratio : tuple[float, float]
-        Desired aspect ratio.
-    output_width : int
-        The desired output width in pixels. The height is automatically
-        scaled, preserving the aspect ratio.
-    margin_x : float
-        Horizontal margin multiplier applied to bounding box width.
-        Example: 0.1 increases width by 10%.
-    margin_y : float
-        Vertical margin multiplier applied to bounding box height.
-        Example: 0.1 increases height by 10%.
-    min_seconds : int, optional
-        Minimum duration (in seconds) a track must exist to be exported.
-
-    Returns
-    -------
-    None
-        Writes video files to disk.
-
-    Notes
-    -----
-    - Frames are randomly accessed via cv2.VideoCapture.set, which is simple
-      but not optimal for performance on long videos.
-    - Bounding boxes are clipped to image boundaries.
+    Export cropped videos for each tracked object based on trajectories.
     """
-    # Read video.
+
     cap = cv2.VideoCapture(str(input_path))
 
-    # Original video dimensions.
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Minimum track length in frames.
     min_frames = int(min_seconds * fps)
 
-    # Scale the image to the desired width, preserving the aspect ratio.
     ar_w, ar_h = aspect_ratio
     scale = output_width / ar_w
     output_height = int(ar_h * scale)
 
-    for tid, data in tracks.items():
+    # Build frame index: frame -> list of (track_id, obs)
+    frame_map = defaultdict(list)
 
-        # Skip short-lived tracks.
-        if len(data) < min_frames:
-            continue
+    for tid, observations in tracks.items():
+        for obs in observations:
+            frame_map[obs.frame].append((tid, obs))
 
-        frames_out = []
+    # Prepare video writers lazily per track
+    writers = {}
+    frame_buffers = defaultdict(list)
+    active_tracks = set()
 
-        for f, cx, cy, w, h in data:
+    # Sequential frame processing.
+    frame_idx = 0
 
-            # Apply margins.
-            w *= (1 + margin_x)
-            h *= (1 + margin_y)
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-            # Convert center box to corner box.
-            x1, y1, x2, y2 = compute_box(cx, cy, w, h)
+        if frame_idx in frame_map:
 
-            # Clamp to image bounds.
-            x1 = clamp(x1, 0, W - 1)
-            y1 = clamp(y1, 0, H - 1)
-            x2 = clamp(x2, 0, W - 1)
-            y2 = clamp(y2, 0, H - 1)
+            for tid, obs in frame_map[frame_idx]:
 
-            # Seek to correct frame.
-            cap.set(cv2.CAP_PROP_POS_FRAMES, f)
-            ret, frame = cap.read()
-            if not ret:
-                continue
+                # skip short tracks early
+                if len(tracks[tid]) < min_frames:
+                    continue
 
-            # Crop region of interest.
-            crop = frame[y1:y2, x1:x2]
+                cx, cy = obs.cx, obs.cy
+                w, h = obs.width, obs.height
 
-            # Resize.
-            crop = cv2.resize(crop, (output_width, output_height))
+                # apply margin ONCE (correct place)
+                w *= (1.0 + margin)
+                h *= (1.0 + margin)
 
-            frames_out.append(crop)
+                # convert to box
+                x1, y1, x2, y2 = compute_box(cx, cy, w, h)
 
-        # Skip empty outputs.
-        if not frames_out:
-            continue
+                # boundary check
+                if x1 < 0 or y1 < 0 or x2 > W or y2 > H:
+                    continue
+                if x2 <= x1 or y2 <= y1:
+                    continue
 
-        # Write per-person video.
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        out_path = out_dir / f"{timestamp}_person_{tid}.mp4"
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
-        writer = cv2.VideoWriter(
-            str(out_path),
-            fourcc,
-            fps,
-            (output_width, output_height))
+                crop = frame[y1:y2, x1:x2]
 
-        for fr in frames_out:
-            writer.write(fr)
+                if crop.size == 0:
+                    continue
 
-        writer.release()
-        print(f"Saved {out_path}")
+                crop = cv2.resize(crop, (output_width, output_height))
 
+                # initialize writer lazily
+                if tid not in writers:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                    out_path = out_dir / f"{timestamp}_person_{tid}.mp4"
+
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
+                    writers[tid] = cv2.VideoWriter(
+                        str(out_path),
+                        fourcc,
+                        fps,
+                        (output_width, output_height)
+                    )
+
+                writers[tid].write(crop)
+
+        frame_idx += 1
+
+    # Cleanup.
     cap.release()
+
+    for w in writers.values():
+        w.release()
+
+    print(f"Saved {len(writers)} cropped videos to {out_dir}")
 
 
 def export_debug_video(
-    input_path: str | Path,
-    tracks: dict[int, list[tuple[int, float, float, float, float]]],
+    input_path: Path,
+    tracks: Tracks,
     fps: float,
-    out_path: str | Path,
+    out_path: Path,
 ) -> None:
     """
-    Export an annotated debug video showing tracked person detections.
-
-    The input video is read frame-by-frame and bounding boxes are drawn for
-    all track detections that belong to the current frame. Each detection is
-    labeled with its track ID using the format ``person_<track_id>``. The
-    resulting frames are written to a new video file.
+    Export an annotated debug video showing tracked detections.
 
     Parameters
     ----------
-    input_path : str | Path
-        Path to the input video.
-    tracks : dict[int, list[tuple[int, float, float, float, float]]]
-        Mapping from track ID to a list of detections.
-
-        Each detection is represented as::
-
-            (frame_idx, center_x, center_y, width, height)
-
-        where ``frame_idx`` is the zero-based frame index in the video.
+    input_path : Path
+        Input video path.
+    tracks : Tracks
+        Track data containing Observation objects.
     fps : float
-        Frame rate of the output video.
-    out_path : str | Path
-        Path where the annotated video will be written.
+        Output video frame rate.
+    out_path : Path
+        Output video path.
 
     Returns
     -------
     None
-
-    Notes
-    -----
-    This function assumes that:
-
-    - ``compute_box(cx, cy, w, h)`` returns bounding box coordinates in the
-      format ``(x1, y1, x2, y2)``.
-    - ``id_to_color(track_id)`` returns a valid OpenCV BGR color tuple.
     """
-    # Open the input video.
+
     cap = cv2.VideoCapture(str(input_path))
 
-    # Get video dimensions for the output writer.
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
@@ -467,26 +602,34 @@ def export_debug_video(
 
     frame_idx = 0
 
-    # Main event loop.
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        # Draw all detections associated with the current frame.
-        for track_id, data in tracks.items():
-            for f, cx, cy, w, h in data:
-                if f != frame_idx:
+        # Draw all boxes that belong to this frame
+        for track_id, observations in tracks.items():
+
+            for obs in observations:
+
+                if obs.frame != frame_idx:
                     continue
 
-                x1, y1, x2, y2 = compute_box(cx, cy, w, h)
+                x1, y1, x2, y2 = compute_box(
+                    obs.cx,
+                    obs.cy,
+                    obs.width,
+                    obs.height,
+                )
+
+                color = id_to_color(track_id)
 
                 cv2.rectangle(
                     frame,
                     (x1, y1),
                     (x2, y2),
-                    id_to_color(track_id),
-                    2
+                    color,
+                    2,
                 )
 
                 cv2.putText(
@@ -495,14 +638,13 @@ def export_debug_video(
                     (x1, max(20, y1 - 5)),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.5,
-                    id_to_color(track_id),
-                    2
+                    color,
+                    2,
                 )
 
         writer.write(frame)
         frame_idx += 1
 
-    # Release video resources.
     cap.release()
     writer.release()
 
@@ -512,56 +654,92 @@ def export_debug_video(
 def main(
     input_video : Path,
     output_dir: Path,
-    yolo_model : str,
+
+    yolo_model_path : str,
     classes: list[int],
     conf_threshold : float,
     crop_aspect_ratio : tuple,
+
     fps : int,
-    margin_x : float,
-    margin_y : float,
-    output_width,
+    margin : float,
+    output_video_width,
     min_seconds : int,
     debug_video : bool,
+    smoothing_alpha : float,
+
     tracker_config):
-
-    # Load YOLO model.
-    model = YOLO(yolo_model)
-
+    """
+    This function has three major processing steps:
+        1) Get bounding boxes with object ID's from YOLO.
+        2) Perform iterpolation, location smoothing, and size
+           smoothing so bounding boxes look nicer.
+        3) Apply these bounding boxes to the videos as "crops,
+           creating sub-videos.
+    """
     # Track objects from the video.
-    tracks, total_frames = run_tracking(
+    # This returns all the tracked objects with unique ID's that are
+    # used for video processing downstream.
+    # tracks : dict[int, list[tuple[int, float, float, float, float]]]
+    #    Dictionary mapping track ID to a list of observations.
+    #    Each observation is: (frame_index, cx, cy, width, height)
+    tracks = run_tracking(
         input_path=input_video,
-        model=model,
+        yolo_model_path=yolo_model_path,
         classes=classes,
         conf_threshold=conf_threshold,
-        tracker_cfg=tracker_config
-    )
+        tracker_cfg=tracker_config)
 
-    # Interpolate missing frames.
-    tracks = interpolate_tracks(tracks)
+    # Interpolate missing bounding boxes.
+    # For instance, if a tracked person appears for 10 frames, vanishes
+    # for 5 frames, and re-appears for 20 frames, the "missing" 5 bb's
+    # will be interpolated. Theoretically, if the gap is very long, this
+    # will lead to low-quality interpolations: but when YOLO produces gaps
+    # they are usually quite short anyway.
+    tracks = interpolate_tracks(
+        tracks=tracks)
 
-    # Stabilize all frames.
-    for tid in tracks:
-        tracks[tid] = stabilize(tracks[tid], crop_aspect_ratio)
+    # Stabilize aspect ratio across all bounding boxes.
+    # All frames will have the exact same aspect ratio. This is calculated
+    # by getting the centroid of the bb, and then multiplying the width by
+    # the aspect ratio to get the new height, with the center of this new
+    # bb in the same location as the original bb (original width, original
+    # centroid, new height).
+    tracks = stabilize_bb_aspect_ratio(
+        tracks=tracks,
+        crop_aspect_ratio=crop_aspect_ratio)
+
+    # Smooth bounding box size changes.
+    # The bounding boxes returned by YOLO are jittery, increasing and decreasing
+    # in size a lot. This function smooths over those sizes, making sure they
+    # are not too jittery.
+    tracks = smooth_bb_size(
+        tracks,
+        alpha=smoothing_alpha)
+
+    # Add margins.
+    # Margins are relative. For instance, a 0.2 horizontal margin adds 20%
+    # to the width.
+    tracks = add_margins(
+        tracks=tracks,
+        margin=margin)
 
     # Turn the input video into many cropped sub-videos.
     export_crops(
-        input_video,
-        tracks,
-        fps,
-        output_dir,
-        crop_aspect_ratio,
-        output_width,
-        margin_x,
-        margin_y,
-        min_seconds
-       )
+        input_path=input_video,
+        tracks=tracks,
+        out_dir=output_dir,
+        fps=fps,
+        output_width=output_video_width,
+        margin=margin,
+        aspect_ratio=crop_aspect_ratio,
+        min_seconds=min_seconds)
 
-    # If requested, save the origial video with tracking.
+    # If requested, export the origial video with tracking added.
     if debug_video:
         export_debug_video(
-            input_video,
-            tracks,
-            fps,
+            input_path=input_video,
+            tracks=tracks,
+            fps=fps,
             out_path=Path("__debug_tracked_video.mp4"))
 
 
@@ -572,21 +750,31 @@ if __name__ == "__main__":
     with open("config.yaml") as f:
         config = yaml.safe_load(f)
 
-    # Select a test video (first one).
-    test_input_video_path = \
-        sorted(Path("videos_full").glob("*.mp4"))[0].resolve()
+    # Iterate over all the full video files.
+    videos_dir = Path("videos_full")
 
-    main(
-        input_video=test_input_video_path,
-        output_dir=Path("person_crops"),
-        yolo_model=config["yolo_model"],
-        classes=config["target_classes"],
-        conf_threshold=config["conf_threshold"],
-        crop_aspect_ratio=config["crop_aspect_ratio"],
-        fps=config["fps"],
-        margin_x=config["margin_x"],
-        margin_y=config["margin_y"],
-        output_width=config["output_width"],
-        min_seconds=config["min_duration_cropped_videos"],
-        debug_video=True,
-        tracker_config=config["tracker_config"])
+    video_files = sorted([
+        p for p in videos_dir.iterdir()
+        if p.is_file() and p.suffix.lower() \
+            in {".mp4", ".avi", ".mov", ".mkv"}])
+
+    for video_path in video_files:
+        print(f"Processing: {video_path}")
+
+        main(
+            input_video=video_path,
+            output_dir=Path("person_crops"),
+
+            yolo_model_path=config["yolo_model"],
+            classes=config["target_classes"],
+            conf_threshold=config["conf_threshold"],
+
+            crop_aspect_ratio=config["crop_aspect_ratio"],
+            fps=config["fps"],
+            margin=config["margin"],
+            output_video_width=config["output_width"],
+            min_seconds=config["min_duration_cropped_videos"],
+            debug_video=True,
+            smoothing_alpha=config["smoothing_alpha"],
+
+            tracker_config=config["tracker_config"])
