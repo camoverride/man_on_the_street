@@ -1,9 +1,8 @@
 # YOLO object detection model (weak: yolov8n.pt; medium: yolov8m.pt; strong: yolov8nx.pt)
 yolo_model: yolov8n.pt
-target_classes: ["person"]
-bb_color: [0, 255, 0]
-draw_labels: True
-conf_threshold: 0.5
+target_classes: [0] # ["person"]
+# draw_labels: True
+conf_threshold: 0.3
 
 # Which camera stream? (see all_cameras.txt)
 traffic_cam_url: https://61e0c5d388c2e.streamlock.net/live/4_Olive_NS.stream/chunklist_w941135728.m3u8
@@ -16,3 +15,14 @@ full_video_save_dir: videos_full
 
 # How many video chunks are combined to make one full video (chunk = ~10s).
 num_video_chunks_per_full_video: 3
+
+# Ultralytics object tracking parameter config.
+tracker_config: bytetrack.yaml
+
+# Video crop parameters.
+margin_x: 0.1
+margin_y: 0.1
+crop_aspect_ratio: [2, 3]
+output_width: 150
+fps: 30
+min_duration_cropped_videos: 4  # seconds
