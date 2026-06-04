@@ -2,7 +2,7 @@
 yolo_model: yolov8n.pt
 target_classes: [0] # ["person"]
 # draw_labels: True
-conf_threshold: 0.3
+conf_threshold: 0.4
 
 # Which camera stream? (see all_cameras.txt)
 traffic_cam_url: https://61e0c5d388c2e.streamlock.net/live/4_Olive_NS.stream/chunklist_w941135728.m3u8
@@ -20,8 +20,8 @@ num_video_chunks_per_full_video: 3
 tracker_config: bytetrack.yaml
 
 # Video crop parameters.
-margin_x: 0.1
-margin_y: 0.1
+smoothing_alpha: 0.7 # smooth bounding box size jumps
+margin: 0.2
 crop_aspect_ratio: [2, 3]
 output_width: 150
 fps: 30
