@@ -5,6 +5,9 @@
 video_chunks/
 videos_full/
 person_crops/
+_tmp_crops/
+1_person_crops
+1_videos_full
 
 # YOLO model artifact
 *.pt
@@ -20,3 +23,5 @@ composite.mp4
 # Misc
 old/
 .DS_Store
+__pycache__
+grid_state.json
