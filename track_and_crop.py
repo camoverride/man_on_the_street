@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple, Union
 import yaml
 from ultralytics import YOLO
 from collections import defaultdict
+import subprocess
 
 
 
@@ -483,6 +484,8 @@ def export_crops(
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    tmp_dir = Path("_tmp_crops")
+    tmp_dir.mkdir(parents=True, exist_ok=True)
 
     min_frames = int(min_seconds * fps)
 
@@ -499,6 +502,7 @@ def export_crops(
 
     # Prepare video writers lazily per track
     writers = {}
+    writer_paths = {}
     frame_buffers = defaultdict(list)
     active_tracks = set()
 
@@ -544,7 +548,8 @@ def export_crops(
                 # initialize writer lazily
                 if tid not in writers:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                    out_path = out_dir / f"{timestamp}_person_{tid}.mp4"
+                    out_path = tmp_dir / f"{timestamp}_person_{tid}.mp4"
+                    writer_paths[tid] = out_path
 
                     fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
                     writers[tid] = cv2.VideoWriter(
@@ -561,8 +566,26 @@ def export_crops(
     # Cleanup.
     cap.release()
 
-    for w in writers.values():
-        w.release()
+    # Convert to web compatible.
+    for tid, writer in writers.items():
+
+        writer.release()
+
+        src = writer_paths[tid]
+        dst = out_dir / src.name
+
+        subprocess.run([
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel", "error",
+            "-i", str(src),
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-r", "25",
+            "-an",
+            str(dst)
+        ], check=True)
 
     print(f"Saved {len(writers)} cropped videos to {out_dir}")
 
@@ -751,7 +774,7 @@ if __name__ == "__main__":
         config = yaml.safe_load(f)
 
     # Iterate over all the full video files.
-    videos_dir = Path("videos_full")
+    videos_dir = Path("1_videos_full")
 
     video_files = sorted([
         p for p in videos_dir.iterdir()
