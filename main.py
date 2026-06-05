@@ -19,7 +19,7 @@ known = set()
 cursor = 0
 
 
-# ---------- PERSISTENCE ----------
+# ---------------- STATE ----------------
 def load_cursor():
     global cursor
     if os.path.exists(STATE_FILE):
@@ -35,14 +35,16 @@ def save_cursor():
         json.dump({"cursor": cursor}, f)
 
 
-# ---------- SCAN ----------
+# ---------------- FILES ----------------
 def scan():
+    if not os.path.exists(VIDEO_DIR):
+        return []
     return sorted([f for f in os.listdir(VIDEO_DIR) if f.endswith(".mp4")])
 
 
-# ---------- INIT ----------
+# ---------------- INIT ----------------
 def init():
-    global state, known, cursor
+    global state, known
 
     files = scan()
     known = set(files)
@@ -54,7 +56,7 @@ def init():
     state = random.sample(files, min(GRID, len(files)))
 
 
-# ---------- UPDATE (CYCLIC OVERWRITE) ----------
+# ---------------- UPDATE ----------------
 def update_state():
     global state, known, cursor
 
@@ -63,7 +65,6 @@ def update_state():
     known = files
 
     for f in new_files:
-
         if len(state) < GRID:
             state.append(f)
         else:
@@ -72,25 +73,22 @@ def update_state():
             save_cursor()
 
 
-# ---------- STARTUP ----------
 @app.on_event("startup")
 def startup():
     load_cursor()
     init()
 
 
-# ---------- STATIC ----------
 app.mount("/videos", StaticFiles(directory=VIDEO_DIR), name="videos")
 
 
-# ---------- API ----------
 @app.get("/state")
 def get_state():
     update_state()
     return JSONResponse(state)
 
 
-# ---------- UI ----------
+# ---------------- UI ----------------
 @app.get("/")
 def home():
     return HTMLResponse(f"""
@@ -113,12 +111,14 @@ body {{
 .cell {{
     position: relative;
     overflow: hidden;
+    background: black;
 }}
 
 video {{
     width: 100%;
     height: 100%;
     object-fit: cover;
+    background: black;
 }}
 
 .label {{
@@ -140,16 +140,14 @@ video {{
 <script>
 
 const GRID = {GRID};
-
 let current = [];
 
-// ---------- FIXED GRID ----------
-function createGrid(files) {{
+// ---------------- CREATE GRID ----------------
+function createGrid() {{
     const grid = document.getElementById("grid");
     grid.innerHTML = "";
 
     for (let i = 0; i < GRID; i++) {{
-
         const cell = document.createElement("div");
         cell.className = "cell";
 
@@ -159,7 +157,6 @@ function createGrid(files) {{
         v.muted = true;
         v.loop = true;
         v.playsInline = true;
-        v.dataset.file = "";
 
         const label = document.createElement("div");
         label.className = "label";
@@ -169,43 +166,89 @@ function createGrid(files) {{
         cell.appendChild(label);
         grid.appendChild(cell);
     }}
-
-    current = files;
 }}
 
-// ---------- UPDATE ----------
+
+// ---------------- SAFE SET VIDEO ----------------
+function setVideo(video, file) {{
+    if (!file) {{
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+        return;
+    }}
+
+    const url = "/videos/" + file + "?t=" + Date.now();
+
+    // IMPORTANT: hard reset to avoid decoder poisoning
+    video.pause();
+    video.src = "";
+    video.load();
+
+    video.src = url;
+
+    video.onloadedmetadata = () => {{
+        video.play().catch(() => {{}});
+    }};
+}}
+
+
+// ---------------- RECOVERY CHECK ----------------
+// If a video gets stuck black, we rebuild ONLY that cell's video
+function healVideo(video) {{
+    if (!video) return;
+
+    const file = video.dataset.file;
+    if (!file) return;
+
+    // If video is not rendering frames, replace it
+    if (video.readyState < 2) {{
+        const newVideo = video.cloneNode(false);
+        newVideo.dataset.file = file;
+
+        setVideo(newVideo, file);
+
+        video.parentNode.replaceChild(newVideo, video);
+    }}
+}}
+
+
+// ---------------- UPDATE LOOP ----------------
 async function update() {{
     const res = await fetch("/state");
     const files = await res.json();
 
     if (current.length === 0) {{
-        createGrid(files);
+        createGrid();
     }}
 
-    for (let i = 0; i < files.length && i < GRID; i++) {{
-        const f = files[i];
+    for (let i = 0; i < GRID; i++) {{
+
+        const file = files[i];
 
         const v = document.getElementById("v_" + i);
         const label = document.getElementById("label_" + i);
 
-        if (!v) continue;
-
-        if (v.dataset.file !== f) {{
-            v.src = "/videos/" + f;
-            v.dataset.file = f;
-            v.load();
-            v.play().catch((e) => console.log("play failed", f, e));
+        if (label) {{
+            label.innerText = file || "";
         }}
 
-        if (label) {{
-            label.innerText = f;
+        if (!v) continue;
+
+        // new assignment
+        if (v.dataset.file !== (file || "")) {{
+            v.dataset.file = file || "";
+            setVideo(v, file);
+        }} else {{
+            // recovery path for black tiles
+            healVideo(v);
         }}
     }}
 
     current = files;
 }}
 
-createGrid([]);
+createGrid();
 setInterval(update, 2000);
 update();
 
