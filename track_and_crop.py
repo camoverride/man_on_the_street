@@ -823,5 +823,4 @@ if __name__ == "__main__":
             debug_video=False,
             smoothing_alpha=config["smoothing_alpha"],
 
-            tracker_config=config["tracker_config"]
-        )
+            tracker_config=config["tracker_config"])
