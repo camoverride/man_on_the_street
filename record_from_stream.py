@@ -31,9 +31,10 @@ class State:
 
 
 def start_ffmpeg(
-    stream_url: str,
-    recording_duration: int,
-    out_dir: str | Path):
+        stream_url: str,
+        recording_duration: int,
+        out_dir: str | Path
+    ) -> subprocess.Popen:
     """
     Start ffmpeg recording and segment the stream into MP4 files.
 
@@ -75,8 +76,9 @@ def start_ffmpeg(
 
 
 def file_watcher(
-    out_dir: str | Path,
-    state: State):
+        out_dir: str | Path,
+        state: State
+    ) -> None:
     """
     Monitor the output directory for newly created segments.
 
@@ -110,7 +112,8 @@ def ffmpeg_worker(
         stream_url: str,
         recording_duration: int,
         out_dir: str | Path,
-        state: State):
+        state: State
+    ) -> None:
     """
     Manage the ffmpeg process lifecycle.
 
@@ -163,7 +166,8 @@ def ffmpeg_worker(
 
 
 def watchdog(
-        state: State):
+        state: State
+    ) -> None:
     """
     Restart ffmpeg when no new segments are produced.
 
@@ -192,9 +196,10 @@ def watchdog(
 
 
 def run(
-    stream_url: str,
-    recording_duration: int,
-    out_dir: str):
+        stream_url: str,
+        recording_duration: int,
+        out_dir: str
+    ) -> None:
     """
     Start all worker threads and block until shutdown.
 
