@@ -2,21 +2,12 @@
 .venv
 
 # Saved video chunks and full videos
-video_chunks/
-videos_full/
-person_crops/
 _tmp_crops/
-1_person_crops
-1_videos_full
-person_crops_3
-video_chunks_30s
-1_video_chunks_30s
+**video_chunks_30s
+**person_crops
 
 # YOLO model artifact
 *.pt
-
-# State tracking for video combining
-__video_combiner_state.json
 
 # Test bounding box videos.
 __test_bounding_boxes.mp4
@@ -27,4 +18,3 @@ composite.mp4
 old/
 .DS_Store
 __pycache__
-grid_state.json
