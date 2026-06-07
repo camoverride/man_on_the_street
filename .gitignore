@@ -8,6 +8,8 @@ person_crops/
 _tmp_crops/
 1_person_crops
 1_videos_full
+person_crops_3
+video_chunks_30s
 
 # YOLO model artifact
 *.pt
