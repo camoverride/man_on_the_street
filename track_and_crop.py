@@ -797,7 +797,7 @@ if __name__ == "__main__":
             margin=config["margin"],
             output_video_width=config["output_width"],
             min_seconds=config["min_duration_cropped_videos"],
-            debug_video=True,
+            debug_video=False,
             smoothing_alpha=config["smoothing_alpha"],
 
             tracker_config=config["tracker_config"])
