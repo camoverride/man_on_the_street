@@ -1,115 +1,142 @@
-from datetime import datetime
-import time
-import requests
 import subprocess
+import threading
+import time
+import signal
 import yaml
 from pathlib import Path
-from urllib.parse import urljoin
+from datetime import datetime
 
 
 
-def record_stream(
-    stream_url: str,
-    video_chunk_save_dir: str) -> None:
+CHUNK_SECONDS = 30
+WATCHDOG_TIMEOUT = 90
+RESTART_DELAY = 30
+
+
+class State:
+    def __init__(self):
+        self.proc = None
+        self.last_write = time.time()
+        self.running = True
+        self.seen_files = set()
+
+
+def start_ffmpeg(stream_url, out_dir):
+    Path(out_dir).mkdir(exist_ok=True)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    pattern = str(Path(out_dir) / f"{ts}_%03d.mp4")
+
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel", "error",
+
+        "-i", stream_url,
+
+        "-f", "segment",
+        "-segment_time", str(CHUNK_SECONDS),
+        "-reset_timestamps", "1",
+        "-c", "copy",
+
+        pattern
+    ]
+
+    return subprocess.Popen(cmd)
+
+
+def file_watcher(out_dir, state: State):
     """
-    Continuously writes video chunks from the security camera feed to
-    the desired directory.
-
-    Parameters
-    ----------
-    stream_url : str
-        The HLS (HTTP Live Streaming) URL of the stream
-        View more info on the stream with `curl -s URL`
-    video_chunk_save_dir : str
-        Where the incremental video chunks are saved.
-
-    Returns
-    -------
-    None
-        Video chunks are saved.
+    THIS is your REAL debug layer.
     """
-    # Create the video chunk directory if it doesn't already exist.
-    Path(video_chunk_save_dir).mkdir(exist_ok=True)
+    out_path = Path(out_dir)
 
-    # Track previously downloaded video chunks from the stream.
-    seen = set()
+    while state.running:
+        time.sleep(1)
 
-    # Main event loop.
-    while True:
+        current = set(out_path.glob("*.mp4"))
+        new_files = current - state.seen_files
+
+        for f in sorted(new_files):
+            print(f"[SAVED] {f.name}")
+            state.last_write = time.time()
+
+        state.seen_files = current
+
+
+def ffmpeg_worker(stream_url, out_dir, state: State):
+    while state.running:
+        print(f"[FFMPEG] session → {datetime.now().strftime('%H:%M:%S')}")
+
+        state.seen_files = set(Path(out_dir).glob("*.mp4"))
+
+        proc = start_ffmpeg(stream_url, out_dir)
+        state.proc = proc
+
         try:
-            # Get the traffic cam URL.
-            playlist = requests.get(stream_url, timeout=10).text
+            while state.running:
+                time.sleep(2)
 
-            # This feed contains multiple short videos (approx 10s).
-            for line in playlist.splitlines():
-                line = line.strip()
+                if proc.poll() is not None:
+                    print("[FFMPEG] exited")
+                    break
 
-                if not line.endswith(".ts"):
-                    continue
+        finally:
+            try:
+                proc.kill()
+            except:
+                pass
 
-                # Example: media_w941135728_28.ts
-                segment_name = line
+        if state.running:
+            print(f"[RECOVERY] sleeping {RESTART_DELAY}s")
+            time.sleep(RESTART_DELAY)
 
-                # Skip previously seen videos.
-                if segment_name in seen:
-                    continue
-                seen.add(segment_name)
 
-                # Grab the specific video segment.
-                segment_url = urljoin(stream_url, segment_name)
+def watchdog(state: State):
+    while state.running:
+        time.sleep(5)
 
-                # Name it.
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                ts_path = Path(video_chunk_save_dir) / f"{timestamp}.ts"
-                mp4_path = Path(video_chunk_save_dir) / f"{timestamp}.mp4"
+        if time.time() - state.last_write > WATCHDOG_TIMEOUT:
+            print("[WATCHDOG] no new files → restarting ffmpeg")
 
-                # Download the chunk.
-                print(f"Downloading {segment_name}")
-                r = requests.get(segment_url, timeout=30)
-                r.raise_for_status()
+            if state.proc:
+                try:
+                    state.proc.kill()
+                except:
+                    pass
 
-                with open(ts_path, "wb") as f:
-                    f.write(r.content)
+            state.last_write = time.time()
 
-                print(f"Converting -> {mp4_path.name}")
 
-                # Convert to mp4.
-                subprocess.run(
-                    [
-                        "ffmpeg",
-                        "-y",
-                        "-i",
-                        str(ts_path),
-                        "-c",
-                        "copy",
-                        str(mp4_path),
-                    ],
-                    check=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+def run(stream_url, out_dir):
+    state = State()
 
-                # Delete .ts file after successful conversion.
-                ts_path.unlink()
+    def shutdown(sig, frame):
+        print("\n[SHUTDOWN]")
+        state.running = False
+        if state.proc:
+            try:
+                state.proc.kill()
+            except:
+                pass
 
-                print(f"Saved {mp4_path.name}")
+    signal.signal(signal.SIGINT, shutdown)
 
-        except Exception as e:
-            print(f"Error: {e}")
+    t1 = threading.Thread(target=ffmpeg_worker, args=(stream_url, out_dir, state))
+    t2 = threading.Thread(target=file_watcher, args=(out_dir, state))
+    t3 = threading.Thread(target=watchdog, args=(state,))
 
-        # Video chunks are about 10s long, so there is no need to continuously
-        # hit the URL.
-        time.sleep(2)
+    t1.start()
+    t2.start()
+    t3.start()
 
+    t1.join()
+    t2.join()
+    t3.join()
 
 
 if __name__ == "__main__":
-
-    # Load config.
-    with open("config.yaml", "r") as f:
+    with open("config.yaml") as f:
         config = yaml.safe_load(f)
 
-    # Test the function
-    record_stream(
-        stream_url=config["traffic_cam_url"],
-        video_chunk_save_dir=config["video_chunk_save_dir"])
+    run(config["traffic_cam_url"], config["video_chunk_save_dir"])
