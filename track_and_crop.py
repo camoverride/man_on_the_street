@@ -4,6 +4,7 @@ from datetime import datetime
 import math
 import numpy as np
 from pathlib import Path
+import re
 from typing import Dict, List, Tuple, Union
 import yaml
 from ultralytics import YOLO
@@ -547,8 +548,7 @@ def export_crops(
 
                 # initialize writer lazily
                 if tid not in writers:
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                    out_path = tmp_dir / f"{timestamp}_person_{tid}.mp4"
+                    out_path = tmp_dir / f"{input_path.stem}_person_{tid}.mp4"
                     writer_paths[tid] = out_path
 
                     fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
@@ -766,27 +766,50 @@ def main(
             out_path=Path("__debug_tracked_video.mp4"))
 
 
-
 if __name__ == "__main__":
 
     # Open config.
     with open("config.yaml") as f:
         config = yaml.safe_load(f)
 
-    # Iterate over all the full video files.
-    videos_dir = Path("1_videos_full")
+    # Input dir.
+    videos_dir = Path("2_video_chunks_30s")
 
+    # Output dir.
+    output_dir = Path("2_person_crops")
+    
+    # Get the already analyzed videos.
+    already_analyzed = set()
+    video_files_2 = [
+        p for p in output_dir.iterdir()
+        if p.is_file() and p.suffix.lower()
+        in {".mp4", ".avi", ".mov", ".mkv"}
+    ]
+
+    for p in video_files_2:
+        base_name = re.sub(r"_person_\d+(?=\.[^.]+$)", "", p.name)
+        already_analyzed.add(base_name)
+
+    # Get the videos to be analyzed.
     video_files = sorted([
         p for p in videos_dir.iterdir()
-        if p.is_file() and p.suffix.lower() \
-            in {".mp4", ".avi", ".mov", ".mkv"}])
+        if p.is_file() and p.suffix.lower()
+        in {".mp4", ".avi", ".mov", ".mkv"}
+    ])
+    
+    un_analyzed_video_files = []
+    for video in video_files:
+        if video.name in already_analyzed:   # <-- ONLY CHANGE
+            print(f"Already analyzed {video}, skipping...")
+        else:
+            un_analyzed_video_files.append(video)
 
-    for video_path in video_files:
+    for video_path in un_analyzed_video_files:
         print(f"Processing: {video_path}")
 
         main(
             input_video=video_path,
-            output_dir=Path("person_crops"),
+            output_dir=output_dir,
 
             yolo_model_path=config["yolo_model"],
             classes=config["target_classes"],
@@ -800,4 +823,5 @@ if __name__ == "__main__":
             debug_video=False,
             smoothing_alpha=config["smoothing_alpha"],
 
-            tracker_config=config["tracker_config"])
+            tracker_config=config["tracker_config"]
+        )
