@@ -10,6 +10,7 @@ _tmp_crops/
 1_videos_full
 person_crops_3
 video_chunks_30s
+1_video_chunks_30s
 
 # YOLO model artifact
 *.pt
