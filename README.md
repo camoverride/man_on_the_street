@@ -31,5 +31,11 @@ Check that downloading works in VLC:
 Make sure that video chunks are available from the HLS (HTTP Live Streaming) url:
 - `curl -s "https://61e0c5d388c2e.streamlock.net/live/4_Olive_NS.stream/chunklist_w941135728.m3u8"`
 
-Download some videos to `./videos` (set in `config.yaml`):
+Record videos to `video_chunks`:
 - `python record_from_stream.py`
+
+Track and crop people, saving to `person_crops`:
+- `python track_and_crop.py`
+
+Display the videos:
+- `python grid_display.py`
