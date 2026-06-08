@@ -5,6 +5,7 @@ import math
 import numpy as np
 from pathlib import Path
 import re
+import time
 from typing import Dict, List, Tuple, Union
 import yaml
 from ultralytics import YOLO
@@ -766,50 +767,38 @@ def main(
             out_path=Path("__debug_tracked_video.mp4"))
 
 
-if __name__ == "__main__":
 
-    # Open config.
-    with open("config.yaml") as f:
-        config = yaml.safe_load(f)
+def analyze_most_recent_video() -> None:
+    while True:
+        # Sleep a bit so we don't run this constantly.
+        time.sleep(0.5)
 
-    # Input dir.
-    videos_dir = Path("2_video_chunks_30s")
+        # Skip if there is no video save dir.
+        files = list(config["video_chunk_save_dir"].iterdir())
+        if not files:
+            continue
 
-    # Output dir.
-    output_dir = Path("2_person_crops")
-    
-    # Get the already analyzed videos.
-    already_analyzed = set()
-    video_files_2 = [
-        p for p in output_dir.iterdir()
-        if p.is_file() and p.suffix.lower()
-        in {".mp4", ".avi", ".mov", ".mkv"}
-    ]
+        # Get the path to the newest file.
+        newest_video_path = sorted(
+            config["video_chunk_save_dir"].iterdir(),
+            key=lambda f: f.stat().st_mtime)[-2]
 
-    for p in video_files_2:
-        base_name = re.sub(r"_person_\d+(?=\.[^.]+$)", "", p.name)
-        already_analyzed.add(base_name)
+        # Check if the file has been analyzed yet.
+        try:
+            with open("__tracked_videos.txt", "r") as f:
+                previously_analyzed_videos = f.read().splitlines()
+        except FileNotFoundError:
+            previously_analyzed_videos = []
 
-    # Get the videos to be analyzed.
-    video_files = sorted([
-        p for p in videos_dir.iterdir()
-        if p.is_file() and p.suffix.lower()
-        in {".mp4", ".avi", ".mov", ".mkv"}
-    ])
-    
-    un_analyzed_video_files = []
-    for video in video_files:
-        if video.name in already_analyzed:   # <-- ONLY CHANGE
-            print(f"Already analyzed {video}, skipping...")
-        else:
-            un_analyzed_video_files.append(video)
+        # If it's already been analyzed, skip.
+        if str(newest_video_path) in previously_analyzed_videos:
+            continue
 
-    for video_path in un_analyzed_video_files:
-        print(f"Processing: {video_path}")
+        print(f"Analyzing new video: {newest_video_path}")
 
         main(
-            input_video=video_path,
-            output_dir=output_dir,
+            input_video=newest_video_path,
+            output_dir=config["tracked_videos_dir"],
 
             yolo_model_path=config["yolo_model"],
             classes=config["target_classes"],
@@ -824,3 +813,74 @@ if __name__ == "__main__":
             smoothing_alpha=config["smoothing_alpha"],
 
             tracker_config=config["tracker_config"])
+        
+        # Track that this video has been analyzed.
+        with open("__tracked_videos.txt", "a") as f:
+            f.write(str(newest_video_path) + "\n")
+
+
+if __name__ == "__main__":
+
+    # Open config.
+    with open("config.yaml") as f:
+        config = yaml.safe_load(f)
+
+    config["video_chunk_save_dir"] = Path(config["video_chunk_save_dir"])
+    config["tracked_videos_dir"] = Path(config["tracked_videos_dir"])
+    config["tracker_config"] = Path(config["tracker_config"])
+
+    # Analyze the most recent video.
+    analyze_most_recent_video()
+
+    # # Input dir.
+    # videos_dir = Path("2_video_chunks_30s")
+
+    # # Output dir.
+    # output_dir = Path("2_person_crops")
+    
+    # # Get the already analyzed videos.
+    # already_analyzed = set()
+    # video_files_2 = [
+    #     p for p in output_dir.iterdir()
+    #     if p.is_file() and p.suffix.lower()
+    #     in {".mp4", ".avi", ".mov", ".mkv"}
+    # ]
+
+    # for p in video_files_2:
+    #     base_name = re.sub(r"_person_\d+(?=\.[^.]+$)", "", p.name)
+    #     already_analyzed.add(base_name)
+
+    # # Get the videos to be analyzed.
+    # video_files = sorted([
+    #     p for p in videos_dir.iterdir()
+    #     if p.is_file() and p.suffix.lower()
+    #     in {".mp4", ".avi", ".mov", ".mkv"}
+    # ])
+    
+    # un_analyzed_video_files = []
+    # for video in video_files:
+    #     if video.name in already_analyzed:   # <-- ONLY CHANGE
+    #         print(f"Already analyzed {video}, skipping...")
+    #     else:
+    #         un_analyzed_video_files.append(video)
+
+    # for video_path in un_analyzed_video_files:
+    #     print(f"Processing: {video_path}")
+
+    #     main(
+    #         input_video=video_path,
+    #         output_dir=output_dir,
+
+    #         yolo_model_path=config["yolo_model"],
+    #         classes=config["target_classes"],
+    #         conf_threshold=config["conf_threshold"],
+
+    #         crop_aspect_ratio=config["crop_aspect_ratio"],
+    #         fps=config["fps"],
+    #         margin=config["margin"],
+    #         output_video_width=config["output_width"],
+    #         min_seconds=config["min_duration_cropped_videos"],
+    #         debug_video=False,
+    #         smoothing_alpha=config["smoothing_alpha"],
+
+    #         tracker_config=config["tracker_config"])
