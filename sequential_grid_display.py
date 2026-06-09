@@ -122,6 +122,7 @@ def injector(
             os.path.join(folder, f)
             for f in os.listdir(folder)
             if f.endswith(".mp4")
+            and "tmp" not in f
         ]
 
         videos.sort(key=os.path.getmtime)
@@ -299,5 +300,5 @@ if __name__ == "__main__":
         screen_h=1600,
         grid_w=48,
         grid_h=20,
-        folder="2_person_crops",
+        folder="3_person_crops",
         num_canvas_frames=600)
