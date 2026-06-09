@@ -294,11 +294,31 @@ def run(
 
 if __name__ == "__main__":
 
+    os.environ["DISPLAY"] = ':0'
+    os.environ["QT_QPA_PLATFORM"] = "xcb"  # Force Qt to use X11
+    os.environ["GDK_BACKEND"] = "x11"      # Force GTK to use X11
+    time.sleep(5)
+
+    # Hide the mouse.
+    os.system("unclutter -idle 0 &")
+
+    # Create window as normal first.
+    cv2.namedWindow("vid", cv2.WINDOW_NORMAL)
+
+    # Show an image first, THEN set fullscreen.
+    dummy_image = np.zeros((100, 100, 3), dtype=np.uint8)
+    cv2.imshow("vid", dummy_image)
+
+    # Brief wait to ensure window is created.
+    cv2.waitKey(100)
+
+    # Now set fullscreen.
+    cv2.setWindowProperty("vid", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
     run(
-        screen_w=2560,
-        screen_h=1600,
-        grid_w=48,
-        grid_h=20,
+        screen_w=1920,
+        screen_h=1080,
+        grid_w=24,
+        grid_h=10,
         folder="3_person_crops",
         num_canvas_frames=600)
