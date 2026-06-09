@@ -10,8 +10,8 @@ import time
 
 def load_video_frames(
         path: str | Path,
-        max_frames=120
-    ) -> list[np.ndarray]:
+        max_frames=240
+    ) -> tuple[list[np.ndarray], float]:
     """
     Load frames from a video file.
 
@@ -29,6 +29,7 @@ def load_video_frames(
         fewer than ``max_frames`` entries if the video ends early.
     """
     cap = cv2.VideoCapture(path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
     frames = []
 
     while len(frames) < max_frames:
@@ -39,7 +40,7 @@ def load_video_frames(
         frames.append(frame)
 
     cap.release()
-    return frames
+    return frames, fps
 
 
 def resize(
@@ -103,7 +104,7 @@ def normalize_to_canvas_length(
 
 def injector(
         folder: str | Path,
-        grid: list[list[tuple[list[np.ndarray], int, int] | None]],
+        grid: list[list[tuple[list[np.ndarray], int, int, float] | None]],
         grid_w: int,
         grid_h: int,
         cell_w: int,
@@ -156,7 +157,7 @@ def injector(
 
         video_path = queue.pop(0)
 
-        frames = load_video_frames(video_path)
+        frames, fps = load_video_frames(video_path)
 
         if not frames:
             continue
@@ -166,7 +167,7 @@ def injector(
 
         offset = random.randint(0, len(frames) - 1)
 
-        grid[y][x] = (frames, offset, scaled_h)
+        grid[y][x] = (frames, offset, scaled_h, fps)
 
         x += 1
 
@@ -219,7 +220,7 @@ def run(
         args=(folder, grid, grid_w, grid_h, cell_w, num_canvas_frames),
         daemon=True).start()
 
-    i = 0
+    start_time = time.perf_counter()
 
     while True:
         frame = np.zeros((screen_h, screen_w, 3), dtype=np.uint8)
@@ -240,9 +241,12 @@ def run(
                     row_items.append(None)
                     continue
 
-                frames, offset, scaled_h = item  # type: ignore
+                frames, offset, scaled_h, fps = item  # type: ignore
 
-                f = frames[(i + offset) % len(frames)]
+                frame_idx = int(
+                    (time.perf_counter() - start_time) * fps)
+
+                f = frames[(frame_idx + offset) % len(frames)]
 
                 row_items.append(f)
 
@@ -286,7 +290,6 @@ def run(
         if key & 0xFF == 27:
             break
 
-        i += 1
 
     cv2.destroyAllWindows()
 
