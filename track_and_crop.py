@@ -3,8 +3,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import math
 import numpy as np
+import os
 from pathlib import Path
-import re
 import time
 from typing import Dict, List, Tuple, Union
 import yaml
@@ -573,6 +573,8 @@ def export_crops(
         writer.release()
 
         src = writer_paths[tid]
+
+        tmp_dst = out_dir / f".{src.stem}.{os.getpid()}.tmp.mp4"
         dst = out_dir / src.name
 
         subprocess.run([
@@ -585,8 +587,11 @@ def export_crops(
             "-pix_fmt", "yuv420p",
             "-r", "25",
             "-an",
-            str(dst)
+            str(tmp_dst)
         ], check=True)
+
+        # Atomic move.
+        os.replace(tmp_dst, dst)
 
     print(f"Saved {len(writers)} cropped videos to {out_dir}")
 
