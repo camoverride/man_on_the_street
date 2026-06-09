@@ -320,5 +320,5 @@ if __name__ == "__main__":
         screen_h=1080,
         grid_w=24,
         grid_h=10,
-        folder="3_person_crops",
+        folder="person_crops",
         num_canvas_frames=600)
