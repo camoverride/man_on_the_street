@@ -18,3 +18,4 @@ composite.mp4
 old/
 .DS_Store
 __pycache__
+__tracked_videos.txt
