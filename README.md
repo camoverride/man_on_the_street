@@ -41,3 +41,10 @@ Track and crop people, saving to `person_crops`:
 
 Display the videos:
 - `python grid_display.py`
+
+
+TODO:
+- [ ] integrate into single loop
+- [ ] raise confidence at night (0.7)
+- [ ] print receipts
+- [ ] AI enhance images
