@@ -316,8 +316,8 @@ if __name__ == "__main__":
     cv2.setWindowProperty("vid", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
     run(
-        screen_w=1920,
-        screen_h=1080,
+        screen_w=2400,
+        screen_h=1000,
         grid_w=24,
         grid_h=10,
         folder="3_person_crops",
