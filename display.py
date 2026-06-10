@@ -124,8 +124,7 @@ def injector(
             os.path.join(folder, f)
             for f in os.listdir(folder)
             if f.endswith(".mp4")
-            and "tmp" not in f
-        ]
+            and "tmp" not in f]
 
         videos.sort(key=os.path.getmtime)
         return videos
@@ -140,8 +139,7 @@ def injector(
     # Remember every file we've already processed so we never repeat.
     seen = set(videos)
 
-    x = 0
-    y = 0
+    x, y = 0, 0
 
     while True:
         # Detect newly-created files.
@@ -291,7 +289,6 @@ def run(
         if key & 0xFF == 27:
             break
 
-
     cv2.destroyAllWindows()
 
 
@@ -319,7 +316,6 @@ if __name__ == "__main__":
 
     # Now set fullscreen.
     cv2.setWindowProperty("vid", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-
 
     # Open config.
     with open("config.yaml") as f:
