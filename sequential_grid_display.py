@@ -5,6 +5,7 @@ from pathlib import Path
 import random
 import threading
 import time
+import yaml
 
 
 
@@ -297,12 +298,13 @@ def run(
 
 if __name__ == "__main__":
 
+    # Carefully set up the display! Tested on MacOS and Ubuntu.
     os.environ["DISPLAY"] = ':0'
     os.environ["QT_QPA_PLATFORM"] = "xcb"  # Force Qt to use X11
     os.environ["GDK_BACKEND"] = "x11"      # Force GTK to use X11
     time.sleep(5)
 
-    # Hide the mouse.
+    # Hide the mouse. NOTE: doesn't work on Ubuntu/MacOS
     os.system("unclutter -idle 0 &")
 
     # Create window as normal first.
@@ -318,10 +320,16 @@ if __name__ == "__main__":
     # Now set fullscreen.
     cv2.setWindowProperty("vid", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
+
+    # Open config.
+    with open("config.yaml") as f:
+        config = yaml.safe_load(f)
+
+    # NOTE: These parameters depend on the specific monitor.
     run(
-        screen_w=1920,
-        screen_h=1080,
-        grid_w=24,
-        grid_h=10,
-        folder="person_crops",
-        num_canvas_frames=600)
+        screen_w=config["screen_width"],
+        screen_h=config["screen_height"],
+        grid_w=config["grid_width"],
+        grid_h=config["grid_height"],
+        folder=config["tracked_videos_dir"],
+        num_canvas_frames=600) # NOTE: this parameter needs to be re-thought.

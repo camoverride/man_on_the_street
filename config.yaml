@@ -26,3 +26,11 @@ crop_aspect_ratio: [2, 3]
 output_width: 150
 fps: 30
 min_duration_cropped_videos: 4  # seconds
+
+
+# Video display parameters.
+screen_width: 1920
+screen_height: 1080
+grid_width: 24
+grid_height: 10
+num_canvas_frames: 600 # num_canvas_frames / fps = duration
