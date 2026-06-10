@@ -81,3 +81,6 @@ TODO:
 - [ ] AI enhance images
 - [ ] "zoom" functions on videos
 - [ ] consider better YOLO model (see `config`)
+- [ ] `record_from_stream` - delete all except `n` most recent files, every run
+- [ ] `track_and_crop` - make sure tmp files are immediately deleted
+- [ ] `track_and_crop` - delete all except `n` most recent files, every run
