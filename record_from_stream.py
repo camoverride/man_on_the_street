@@ -1,10 +1,10 @@
+from datetime import datetime
+from pathlib import Path
+import signal
 import subprocess
 import threading
 import time
-import signal
 import yaml
-from pathlib import Path
-from datetime import datetime
 
 
 
@@ -69,8 +69,7 @@ def start_ffmpeg(
         "-strftime", "1",
         "-reset_timestamps", "1",
         "-c", "copy",
-        pattern,
-    ]
+        pattern]
 
     return subprocess.Popen(cmd)
 
@@ -250,5 +249,5 @@ if __name__ == "__main__":
 
     run(
         config["traffic_cam_url"],
-        recording_duration=30,
+        recording_duration=config["chunk_recording_duration"],
         out_dir=config["video_chunk_save_dir"])

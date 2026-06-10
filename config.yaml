@@ -8,7 +8,8 @@ conf_threshold: 0.5
 traffic_cam_url: https://61e0c5d388c2e.streamlock.net/live/4_Olive_NS.stream/chunklist_w941135728.m3u8
 
 # Where to save the downloaded video chunks.
-video_chunk_save_dir: video_chunks_30s
+video_chunk_save_dir: video_chunks
+chunk_recording_duration: 30 # seconds
 
 # Where to save the tracked people.
 tracked_videos_dir: person_crops
