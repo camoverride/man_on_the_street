@@ -1,6 +1,8 @@
+from astral import LocationInfo
+from astral.sun import sun
 import cv2
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 import math
 import numpy as np
 import os
@@ -11,6 +13,7 @@ import yaml
 from ultralytics import YOLO
 from collections import defaultdict
 import subprocess
+from zoneinfo import ZoneInfo
 
 
 
@@ -284,6 +287,84 @@ def interpolate_tracks(
             last.height)
 
     return result
+
+
+def is_night_in_seattle(
+    margin_hours: float = 1.0,
+) -> bool:
+    """
+    Returns True when the current Seattle time is within:
+        (sunset - margin) to (sunrise + margin)
+    """
+
+    tz = ZoneInfo("America/Los_Angeles")
+    now = datetime.now(tz)
+
+    seattle = LocationInfo(
+        "Seattle",
+        "USA",
+        "America/Los_Angeles",
+        47.6062,
+        -122.3321)
+
+    s = sun(
+        seattle.observer,
+        date=now.date(),
+        tzinfo=tz)
+
+    margin = timedelta(hours=margin_hours)
+
+    return (
+        now >= s["sunset"] - margin
+        or
+        now <= s["sunrise"] + margin)
+
+
+def remove_stationary_tracks(
+    tracks: Tracks,
+    min_displacement_ratio: float = 0.5,
+) -> Tracks:
+    """
+    Remove tracks whose total displacement is too small relative
+    to their average bounding-box width.
+
+    NOTE: this is meant to exclude traffic cones, which are frequently
+    confused for people during low-light conditions.
+
+    NOTE: this excludes stationary people too.
+
+    NOTE: if a person is tracked and they return to the same place
+    that tracking began, they'll be excluded.
+    """
+    filtered = Tracks()
+
+    for track_id, observations in tracks.items():
+
+        if len(observations) < 2:
+            continue
+
+        observations = sorted(
+            observations,
+            key=lambda obs: obs.frame)
+
+        first = observations[0]
+        last = observations[-1]
+
+        displacement = math.hypot(
+            last.cx - first.cx,
+            last.cy - first.cy)
+
+        avg_width = (
+            sum(obs.width for obs in observations)
+            / len(observations)
+        )
+
+        if displacement < avg_width * min_displacement_ratio:
+            continue
+
+        filtered[track_id] = observations
+
+    return filtered
 
 
 def stabilize_bb_aspect_ratio(
@@ -726,6 +807,13 @@ def main(
     # they are usually quite short anyway.
     tracks = interpolate_tracks(
         tracks=tracks)
+
+    # At night, fire hydrants are frequently mistaken for people.
+    # Exclude them during night time hours.
+    if is_night_in_seattle():
+        tracks = remove_stationary_tracks(
+            tracks=tracks,
+            min_displacement_ratio=0.5)
 
     # Stabilize aspect ratio across all bounding boxes.
     # All frames will have the exact same aspect ratio. This is calculated
