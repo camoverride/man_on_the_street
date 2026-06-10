@@ -1,16 +1,25 @@
 # Man on the Street
 
-Tracking, analyzing, repeating.
+Tracking, analyzing, and repeating videos of people from CCTV cameras using HLS streams.
 
 
 ## Setup
 
-- `python3.11 -m venv .venv`
+Select a stream from `all_cameras.txt` or visit [link](https://web.seattle.gov/Travelers/) and sniff the web traffic to find these url's.
+
+Works best with python3.11.
+
+- `python3 -m venv .venv`
 - `source .venv/bin/activate`
 - `pip install -r requirements.txt`
 
+NOTE: this is expected to run on Ubuntu with a GPU (tested: 3050). If no GPU is present, some video chunks may not be analyzed.
+
 
 ## Tests
+
+Make sure the CCTV streams are live and that you haven't been blocked. If your IP has been blocked,
+ProtonVPN's command line utils work just fine.
 
 View the CCTV streams online: [link](https://web.seattle.gov/Travelers/).
 
@@ -43,8 +52,31 @@ Display the videos:
 - `python grid_display.py`
 
 
+## Run in Production
+
+Start all services with *systemd*. This will start the program when the computer starts and revive it when it dies. Start all three services in `system_d_services` like below:
+
+- `mkdir -p ~/.config/systemd/user`
+- `cat system_d_services/record.service > ~/.config/systemd/user/record.service`
+
+Start the service using the commands below:
+
+- `systemctl --user daemon-reload`
+- `systemctl --user enable record.service`
+- `systemctl --user start record.service`
+
+Start it on boot: 
+
+- `sudo loginctl enable-linger $(whoami)`
+
+Get the logs: 
+
+- `journalctl --user -u record.service`
+
 TODO:
 - [ ] integrate into single loop
+- [ ] dont track stationary objects at night
 - [ ] raise confidence at night (0.7)
 - [ ] print receipts
 - [ ] AI enhance images
+- [ ] "zoom" functions on videos
