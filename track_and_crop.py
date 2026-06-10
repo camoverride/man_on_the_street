@@ -1,5 +1,6 @@
 from astral import LocationInfo
 from astral.sun import sun
+from collections import defaultdict
 import cv2
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -7,12 +8,11 @@ import math
 import numpy as np
 import os
 from pathlib import Path
+import subprocess
 import time
 from typing import Dict, List, Tuple, Union
-import yaml
 from ultralytics import YOLO
-from collections import defaultdict
-import subprocess
+import yaml
 from zoneinfo import ZoneInfo
 
 
