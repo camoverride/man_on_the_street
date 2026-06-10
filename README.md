@@ -80,3 +80,4 @@ TODO:
 - [ ] print receipts
 - [ ] AI enhance images
 - [ ] "zoom" functions on videos
+- [ ] consider better YOLO model (see `config`)
