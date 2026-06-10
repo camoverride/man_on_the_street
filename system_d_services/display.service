@@ -6,7 +6,7 @@ After=default.target
 Type=simple
 Restart=always
 WorkingDirectory=/home/%u/man_on_the_street
-ExecStart=/home/%u/man_on_the_street/.venv/bin/python /home/%u/man_on_the_street/sequential_grid_display.py
+ExecStart=/home/%u/man_on_the_street/.venv/bin/python /home/%u/man_on_the_street/display.py
 StandardOutput=journal
 StandardError=journal
 Environment="PATH=/home/%u/man_on_the_street/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
