@@ -944,6 +944,7 @@ def analyze_most_recent_video() -> None:
             f.write(str(newest_video_path) + "\n")
 
 
+
 if __name__ == "__main__":
 
     # Open config.
